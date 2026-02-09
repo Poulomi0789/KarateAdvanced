@@ -103,4 +103,8 @@ pipeline {
                 """,
                 attachmentsPattern: 'allure-report.zip',
                 mimeType: 'text/html',
-                to: "${EMAIL_RECI
+                to: "${EMAIL_RECIPIENTS}"
+            )
+        }
+    }
+}
