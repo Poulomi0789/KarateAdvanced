@@ -2,8 +2,8 @@ pipeline {
     agent {
         docker {
             image 'maven:3.9.9-eclipse-temurin-17'
-            // Using a relative path for the repo is often safer in Jenkins
-            args '-v .m2:/root/.m2' 
+            // Maps the Maven cache to speed up subsequent runs
+            args '-v $HOME/.m2:/root/.m2'
         }
     }
 
@@ -16,9 +16,9 @@ pipeline {
     }
 
     environment {
-        GIT_URL = 'https://github.com/your-org/your-karate-repo.git'
+        GIT_URL = 'https://github.com/Poulomi0789/KarateAdvanced.git'
         GIT_BRANCH = 'main'
-        EMAIL_RECIPIENTS = 'poulomidas89@gmail.com'
+        EMAIL_RECIPIENTS = 'qa-team@company.com'
     }
 
     options {
@@ -36,7 +36,6 @@ pipeline {
 
         stage('Run Karate Tests') {
             steps {
-                // Combined Maven Opts into the command for clarity
                 sh """
                 mvn clean test \
                 -Dkarate.env=${params.TEST_ENV} \
@@ -47,45 +46,61 @@ pipeline {
             }
         }
 
-        stage('Generate Allure Report') {
+        stage('Generate & Zip Report') {
             steps {
+                // 1. Generate the report
                 sh 'mvn io.qameta.allure:allure-maven:report'
+                
+                // 2. Install zip and create the archive (Fixes the previous error)
+                sh '''
+                apt-get update && apt-get install -y zip
+                if [ -d "target/site/allure-maven-plugin" ]; then
+                    cd target/site/allure-maven-plugin
+                    zip -r ../../../allure-report.zip .
+                else
+                    echo "Allure report directory not found!"
+                    exit 1
+                fi
+                '''
             }
         }
 
-        stage('Publish & Archive') {
+        stage('Publish to Jenkins') {
             steps {
-                // Publish to Jenkins UI
+                // This requires the Allure Jenkins Plugin
                 allure includeProperties: false, results: [[path: 'target/allure-results']]
-                
-                // Native Jenkins zip step (doesn't need 'zip' installed in Docker)
-                zip archive: true, 
-                    dir: 'target/site/allure-maven-plugin', 
-                    zipFile: 'allure-report.zip'
             }
         }
     }
 
     post {
         always {
+            // Archive logs and JUnit results for the Jenkins UI
             archiveArtifacts artifacts: 'target/**/*.log', allowEmptyArchive: true
-            // Karate/Surefire reports
             junit testResults: 'target/surefire-reports/*.xml', allowEmptyResults: true
         }
+
         success {
             emailext(
                 subject: "✅ Karate Tests Passed | ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: "Check report here: ${env.BUILD_URL}allure",
+                body: """
+                <h2>Build Successful 🚀</h2>
+                <b>Environment:</b> ${params.TEST_ENV} <br>
+                <b>Allure Report:</b> <a href="${env.BUILD_URL}allure">View Online</a>
+                """,
                 attachmentsPattern: 'allure-report.zip',
+                mimeType: 'text/html',
                 to: "${EMAIL_RECIPIENTS}"
             )
         }
+
         failure {
             emailext(
                 subject: "❌ Karate Tests FAILED | ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: "Build failed. View logs: ${env.BUILD_URL}console",
-                to: "${EMAIL_RECIPIENTS}"
-            )
-        }
-    }
-}
+                body: """
+                <h2>Build Failed ❌</h2>
+                <b>Check Logs:</b> <a href="${env.BUILD_URL}console">Console Output</a>
+                """,
+                attachmentsPattern: 'allure-report.zip',
+                mimeType: 'text/html',
+                to: "${EMAIL_RECI
