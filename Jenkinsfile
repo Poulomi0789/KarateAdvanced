@@ -51,17 +51,16 @@ pipeline {
                 // 1. Generate the report
                 sh 'mvn io.qameta.allure:allure-maven:report'
                 
-                // 2. Install zip and create the archive (Fixes the previous error)
-                sh '''
-                apt-get update && apt-get install -y zip
-                if [ -d "target/site/allure-maven-plugin" ]; then
-                    cd target/site/allure-maven-plugin
-                    zip -r ../../../allure-report.zip .
-                else
-                    echo "Allure report directory not found!"
-                    exit 1
-                fi
-                '''
+                // 2. Use the built-in Jenkins zip tool (Run this OUTSIDE the sh block)
+                script {
+                    if (fileExists('target/site/allure-maven-plugin')) {
+                        zip zipFile: 'allure-report.zip', 
+                            dir: 'target/site/allure-maven-plugin', 
+                            archive: true
+                    } else {
+                        echo "Warning: Allure report directory not found, skipping zip."
+                    }
+                }
             }
         }
 
@@ -108,3 +107,4 @@ pipeline {
         }
     }
 }
+
