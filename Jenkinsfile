@@ -18,7 +18,7 @@ pipeline {
     environment {
         GIT_URL = 'https://github.com/Poulomi0789/KarateAdvanced.git'
         GIT_BRANCH = 'main'
-        EMAIL_RECIPIENTS = 'qa-team@company.com'
+        EMAIL_RECIPIENTS = 'poulomidas89@gmail.com'
     }
 
     options {
@@ -119,4 +119,5 @@ pipeline {
         }
     }
 }
+
 
