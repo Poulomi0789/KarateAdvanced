@@ -2,8 +2,8 @@ pipeline {
     agent {
         docker {
             image 'maven:3.9.9-eclipse-temurin-17'
-            // Maps the Maven cache to speed up subsequent runs
-            args '-v $HOME/.m2:/root/.m2'
+            // Using a named volume 'maven-repo' is more reliable on Windows Docker
+            args '-v maven-repo:/root/.m2'
         }
     }
 
@@ -36,22 +36,23 @@ pipeline {
 
         stage('Run Karate Tests') {
             steps {
-                sh """
-                mvn clean test \
-                -Dkarate.env=${params.TEST_ENV} \
-                -DforkCount=2 \
-                -DreuseForks=true \
-                -Dmaven.test.failure.ignore=true
-                """
+                // 'retry' helps with flaky network issues during maven downloads
+                retry(2) {
+                    sh """
+                    mvn clean test \
+                    -Dkarate.env=${params.TEST_ENV} \
+                    -Dmaven.test.failure.ignore=true
+                    """
+                }
             }
         }
 
         stage('Generate & Zip Report') {
             steps {
-                // 1. Generate the report
+                // 1. Generate the report site
                 sh 'mvn io.qameta.allure:allure-maven:report'
                 
-                // 2. Use the built-in Jenkins zip tool (Run this OUTSIDE the sh block)
+                // 2. Use native Jenkins zip (requires Pipeline Utility Steps plugin)
                 script {
                     if (fileExists('target/site/allure-maven-plugin')) {
                         zip zipFile: 'allure-report.zip', 
@@ -66,27 +67,41 @@ pipeline {
 
         stage('Publish to Jenkins') {
             steps {
-                // This requires the Allure Jenkins Plugin
-                allure includeProperties: false, results: [[path: 'target/allure-results']]
+                // Captures results from multiple possible locations to ensure the chart populates
+                allure includeProperties: false, results: [
+                    [path: 'target/allure-results'],
+                    [path: 'target/karate-reports']
+                ]
             }
         }
     }
 
     post {
         always {
-            // Archive logs and JUnit results for the Jenkins UI
-            archiveArtifacts artifacts: 'target/**/*.log', allowEmptyArchive: true
-            junit testResults: 'target/surefire-reports/*.xml', allowEmptyResults: true
+            // Updated pattern to target the specific karate log and surefire reports
+            archiveArtifacts artifacts: 'target/*.log', allowEmptyArchive: true
+            junit testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true
         }
 
         success {
             emailext(
                 subject: "✅ Karate Tests Passed | ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """
-                <h2>Build Successful 🚀</h2>
-                <b>Environment:</b> ${params.TEST_ENV} <br>
-                <b>Allure Report:</b> <a href="${env.BUILD_URL}allure">View Online</a>
-                """,
+                body: """<h2>Build Successful 🚀</h2>
+                         <b>Environment:</b> ${params.TEST_ENV} <br>
+                         <b>Allure Report:</b> <a href="${env.BUILD_URL}allure">View Online</a>""",
+                attachmentsPattern: 'allure-report.zip',
+                mimeType: 'text/html',
+                to: "${EMAIL_RECIPIENTS}"
+            )
+        }
+
+        unstable {
+            // This triggers if tests fail but the pipeline finished
+            emailext(
+                subject: "⚠️ Karate Tests Unstable | ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """<h2>Tests Failed ⚠️</h2>
+                         <b>Environment:</b> ${params.TEST_ENV} <br>
+                         <b>Check Allure for details:</b> <a href="${env.BUILD_URL}allure">View Report</a>""",
                 attachmentsPattern: 'allure-report.zip',
                 mimeType: 'text/html',
                 to: "${EMAIL_RECIPIENTS}"
@@ -95,16 +110,12 @@ pipeline {
 
         failure {
             emailext(
-                subject: "❌ Karate Tests FAILED | ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """
-                <h2>Build Failed ❌</h2>
-                <b>Check Logs:</b> <a href="${env.BUILD_URL}console">Console Output</a>
-                """,
-                attachmentsPattern: 'allure-report.zip',
-                mimeType: 'text/html',
+                subject: "❌ Karate Build Failed | ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """<h2>Pipeline Error ❌</h2>
+                         <b>The build crashed before finishing.</b><br>
+                         <a href="${env.BUILD_URL}console">Console Output</a>""",
                 to: "${EMAIL_RECIPIENTS}"
             )
         }
     }
 }
-
