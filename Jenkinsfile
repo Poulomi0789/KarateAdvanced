@@ -78,8 +78,8 @@ pipeline {
 
     post {
         always {
-            // Updated pattern to target the specific karate log and surefire reports
-            archiveArtifacts artifacts: 'target/*.log', allowEmptyArchive: true
+           // This will look everywhere in the workspace for any .log files
+            archiveArtifacts artifacts: '**/*.log', allowEmptyArchive: true
             junit testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true
         }
 
@@ -119,3 +119,4 @@ pipeline {
         }
     }
 }
+
