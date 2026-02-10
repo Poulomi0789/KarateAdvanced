@@ -1,5 +1,6 @@
 {
-  "login": "#string",
+  "userId": "#number",
   "id": "#number",
-  "node_id": "#string"
+  "title": "#string",
+  "body": "##string"
 }
